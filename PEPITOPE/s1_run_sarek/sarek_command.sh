@@ -1,0 +1,2 @@
+cd ./PEPITOPE/s1_run_sarek/
+nextflow run nf-core/sarek -r 3.6.0 -profile singularity --input ./reseq_samplesheet.csv --outdir ./results_reseq --genome GATK.GRCh38 --tools haplotypecaller,mutect2 --max_cpus 14 --max_memory 90GB
