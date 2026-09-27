@@ -222,7 +222,7 @@ find_barcodes <- function(selected, gates_dt, COMP_MAIN_db, COMP_MAIN_sg,
   test <- bc[mutation_profile != "ref"][, .SD[1], by = unit]      # one per unit
   ref  <- bc[mutation_profile == "ref"][, .SD[1], by = "ref_key"] # one per WT partner
   bc   <- rbind(test, ref, use.names = TRUE, fill = TRUE)
-  setorder(bc, stat)
+  setorder(bc, log2FoldChange)
   bc[]
 }
 
@@ -344,6 +344,9 @@ run_pipeline <- function(screen_dt, COMP_MAIN_db, COMP_MAIN_sg, pat_folder,
   called  <- cand[best_tier %in% c("A","B","C")]
   selected <- head(called, topN)
   bcs     <- find_barcodes(selected, gates, COMP_MAIN_db, COMP_MAIN_sg, unit = unit)
+  setorder(bcs, ref_key, mutation_profile, stat)
+  fwrite(bcs[,.(gene_id,barcode,mutation_profile,gene_name, gene,ref_key, comparison,baseMean, stat, log2FoldChange, pvalue, padj)],
+         file.path(fo, "03_required_barcodes.txt"))
   
   # ---- 4 output tables ----------------------------------------------------
   # 1: full audit trail, every unit, both pools
@@ -351,17 +354,17 @@ run_pipeline <- function(screen_dt, COMP_MAIN_db, COMP_MAIN_sg, pat_folder,
   # 2: the decision table -- tiered hits only
   fwrite(called, file.path(fo, "02_candidates_tiered.txt"))
   # 3: top N with the barcode to carry forward
-  fwrite(merge(selected, bcs[, .(get(unit), barcode, gene_name, mutation_profile,
-                                 comparison, baseMean, log2FoldChange, stat, padj)],
-               by.x = unit, by.y = "V1", all.x = TRUE, sort = FALSE),
-         file.path(fo, "03_selected_with_barcode.txt"))
+  # fwrite(merge(selected, bcs[, .(get(unit), barcode, gene_name, mutation_profile,
+  #                                comparison, baseMean, log2FoldChange, stat, padj)],
+  #              by.x = unit, by.y = "V1", all.x = TRUE, sort = FALSE),
+  #        file.path(fo, "03_selected_with_barcode.txt"))
   # 4: barcode-level evidence behind the selection, including the WT refs that
   #    the selected units are controlled by (matched via ref_key)
-  sel_rk <- .rk_of(gates, selected[[unit]], unit)
-  fwrite(gates[(get(unit) %in% selected[[unit]] |
-                  (mutation_profile == "ref" & ref_key %in% sel_rk)) &
-                  comparison %in% c(COMP_MAIN_db, COMP_MAIN_sg, COMP_CTRL)],
-                  file.path(fo, "04_barcode_evidence.txt"))
+  # sel_rk <- .rk_of(gates, selected[[unit]], unit)
+  # fwrite(gates[(get(unit) %in% selected[[unit]] |
+  #                 (mutation_profile == "ref" & ref_key %in% sel_rk)) &
+  #                 comparison %in% c(COMP_MAIN_db, COMP_MAIN_sg, COMP_CTRL)],
+  #                 file.path(fo, "04_barcode_evidence.txt"))
   
   plot_hits(gates, gp_dt, selected, COMP_MAIN_db, COMP_MAIN_sg,
             COMP_CTRL = COMP_CTRL, minBase = minBase_plot, unit = unit,
