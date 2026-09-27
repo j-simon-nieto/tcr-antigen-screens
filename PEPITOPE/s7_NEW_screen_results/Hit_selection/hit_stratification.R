@@ -199,7 +199,11 @@ create_list <- function(screen_clusters, screen_singlets, unit = "gene_id") {
   s[, fusion_parent := fifelse(grepl("--", get(unit), fixed = TRUE),
                                sub("-[0-9]+$", "", get(unit)), NA_character_)]
   
-  setorder(s, best_tier, -n_pools_called, best_stat_overall)
+  s[, rank_stat := frank(best_stat_overall, ties.method = "min")]
+  s[, rank_lfc  := frank(best_lfc_overall,  ties.method = "min")]
+  s[, rank_best := pmin(rank_stat, rank_lfc)]
+  s[, sel_pos := .I]
+  setorder(s, rank_best, best_stat_overall)
   s[]
 }
 
