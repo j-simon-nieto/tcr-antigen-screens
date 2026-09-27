@@ -1,0 +1,11 @@
+file	label	total_guides	total_reads	mapped_reads	frac_mapped	mean_reads_per_guide	mean_reads_essential	mean_reads_nonessential	mean_reads_control	mean_reads_other	zero_read_guides
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_2b/1D3 - A.R1.fq.gz	1D3 - A.R1	13766	13536519	13086515	0.9668	950.64	0.0	0.0	0.0	950.64	4920
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_2b/1D3 - B.R1.fq.gz	1D3 - B.R1	13766	18393330	17806103	0.9681	1293.48	0.0	0.0	0.0	1293.48	4908
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_2b/1D3 - C.R1.fq.gz	1D3 - C.R1	13766	11889648	11507292	0.9678	835.92	0.0	0.0	0.0	835.92	4839
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_2b/B only - A.R1.fq.gz	B only - A.R1	13766	30196680	29100179	0.9637	2113.92	0.0	0.0	0.0	2113.92	4888
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_2b/B only - B.R1.fq.gz	B only - B.R1	13766	30023178	28995329	0.9658	2106.3	0.0	0.0	0.0	2106.3	4895
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_2b/B only - C.R1.fq.gz	B only - C.R1	13766	31255419	30156961	0.9649	2190.68	0.0	0.0	0.0	2190.68	4476
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_2b/UT - A.R1.fq.gz	UT - A.R1	13766	15418376	14923120	0.9679	1084.06	0.0	0.0	0.0	1084.06	4917
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_2b/UT - B.R1.fq.gz	UT - B.R1	13766	14490440	14007114	0.9666	1017.52	0.0	0.0	0.0	1017.52	4922
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_2b/UT - C.R1.fq.gz	UT - C.R1	13766	17580298	16981415	0.9659	1233.58	0.0	0.0	0.0	1233.58	4891
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_2b/unmatched.R1.fq.gz	unmatched.R1	13766	4354407	3044705	0.6992	221.18	0.0	0.0	0.0	221.18	4041

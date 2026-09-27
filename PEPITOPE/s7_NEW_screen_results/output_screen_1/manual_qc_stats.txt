@@ -1,0 +1,16 @@
+file,label,total_guides,total_reads,mapped_reads,frac_mapped,mean_reads_per_guide,mean_reads_essential,mean_reads_nonessential,mean_reads_control,mean_reads_other,zero_read_guides,sample_id
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_1/1D3 - B.R1.fq.gz,1D3 - B.R1,13766,29265708,28268799,0.9659,2053.52,0,0,0,2053.52,4918,1D3 - B
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_1/1D3 - C.R1.fq.gz,1D3 - C.R1,13766,16820207,16242189,0.9656,1179.88,0,0,0,1179.88,4872,1D3 - C
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_1/B only - A.R1.fq.gz,B only - A.R1,13766,47488928,45866624,0.9658,3331.88,0,0,0,3331.88,4878,B only - A
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_1/B only - B.R1.fq.gz,B only - B.R1,13766,45625385,43918611,0.9626,3190.37,0,0,0,3190.37,4903,B only - B
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_1/B only - C.R1.fq.gz,B only - C.R1,13766,46172707,44630677,0.9666,3242.09,0,0,0,3242.09,4902,B only - C
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_1/Cluster T - A.R1.fq.gz,Cluster T - A.R1,13766,35812939,34555569,0.9649,2510.21,0,0,0,2510.21,4902,Cluster T - A
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_1/Cluster T - B.R1.fq.gz,Cluster T - B.R1,13766,32023323,30875780,0.9642,2242.9,0,0,0,2242.9,4894,Cluster T - B
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_1/Cluster T - C.R1.fq.gz,Cluster T - C.R1,13766,35953211,34687247,0.9648,2519.78,0,0,0,2519.78,4890,Cluster T - C
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_1/Single T - A.R1.fq.gz,Single T - A.R1,13766,27644263,26666806,0.9646,1937.15,0,0,0,1937.15,4910,Single T - A
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_1/Single T - B.R1.fq.gz,Single T - B.R1,13766,23020972,22219516,0.9652,1614.09,0,0,0,1614.09,4916,Single T - B
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_1/Single T - C.R1.fq.gz,Single T - C.R1,13766,31331807,30270785,0.9661,2198.95,0,0,0,2198.95,4910,Single T - C
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_1/UT - A.R1.fq.gz,UT - A.R1,13766,17457259,16878093,0.9668,1226.07,0,0,0,1226.07,4871,UT - A
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_1/UT - B.R1.fq.gz,UT - B.R1,13766,31185540,30142557,0.9666,2189.64,0,0,0,2189.64,4902,UT - B
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_1/UT - C.R1.fq.gz,UT - C.R1,13766,21963615,21207291,0.9656,1540.56,0,0,0,1540.56,4930,UT - C
+/DATA/j.simon/JV/ANTIGEN_calling/PEPITOPE/s7_NEW_screen_results/tmp_files_screen_1/unmatched.R1.fq.gz,unmatched.R1,13766,12366577,7397316,0.5982,537.36,0,0,0,537.36,3736,unmatched
