@@ -9,7 +9,7 @@ library(DESeq2)
 set.seed(150799)
 theme_set(theme_classic())
 
-output_dir="PEPITOPE/s7_screen_results/output_screen_2b/updated_screen_results/"
+output_dir="PEPITOPE/s7_NEW_screen_results/output_screen_2b/updated_screen_results/"
 # updates to the logfc thresholds in deseq2
 # run on 18/Sept/26: fix fusion proteins
 if(!dir.exists(output_dir)){
@@ -36,21 +36,51 @@ design_dt=data.table(sample_id=colnames(counts_mat))
 design_dt[, rep:= stringr::str_split_i(sample_id, " ", -1)]
 design_dt[, origin:= stringr::str_split_i(sample_id, " ", 1)]
 
+# --------------- RENAMING STARTS ----------------------
+# ------------------------------------------------------
 setnames(rows_dt, "guide", "barcode")
 rows_dt <- rows_dt[match(rownames(counts_mat), rows_dt$barcode), ]
-rows_dt[, gene:=gsub("^_","",gene)]
+
+# # basic columns
 rows_dt[, gene_replicate:=stringr::str_split_i(gene, "_", -1)]
 rows_dt[, mutation_profile:=stringr::str_split_i(gene, "_", -2)]
-rows_dt[, gene_id:=stringr::str_split_i(gene, "_", 1)]
-rows_dt[, gene_name:=gsub("^_", "", stringr::str_split_i(gene_id, "\\-", 1))]
+rows_dt[, construct := sub("_[^_]+_[^_]+$", "", gene)] 
 
+rows_dt[, gene_name := fifelse(mutation_profile == "TAA",
+                               sub("_TAA$", "", construct),   
+                               sub("_.*$", "", construct))]  
+rows_dt[, pep_id := fifelse(mutation_profile == "TAA", NA_character_,
+                            sub("^[^_]*_", "", construct))]
+rows_dt[, is_fusion := grepl("--", pep_id, fixed = TRUE)]
+rows_dt[, gene_id := fcase(mutation_profile == "TAA", gene_name,
+                           default = pep_id)]
 
-rows_dt[, gene_id:= ifelse(mutation_profile=="TAA",
-                           stringr::str_split_i(gene, "_TAA_TAA", 1), 
-                           gene_id)]
-rows_dt[, gene_id:= ifelse(gene_id=="",
-                           gsub("^_","",stringr::str_split_i(gene, "--",1)),
-                           gene_id)]
+.locus <- function(x) sub("(?<=[0-9])(fs|[A-Za-z]+)[*]?$", "", sub("-[0-9]+$", "", x), perl = TRUE)
+
+# alts declare their key(s)
+rows_dt[, ref_key_3p := fcase(
+  mutation_profile != "alt", NA_character_,
+  is_fusion, sub("\\.fs$", "", sub("-[0-9]+$", "", sub("^.*--", "", pep_id))),
+  default = .locus(pep_id))]
+rows_dt[, ref_key_5p := fifelse(mutation_profile == "alt" & is_fusion,
+                                sub("--.*$", "", pep_id), NA_character_)]
+
+alt_keys <- unique(stats::na.omit(c(rows_dt$ref_key_3p, rows_dt$ref_key_5p)))
+
+# refs adopt whichever of their own candidate keys an alt is asking for
+rows_dt[mutation_profile == "ref", ref_key := {
+  cand <- list(pep_id, .locus(pep_id), gene_name, .locus(gene_name))
+  out  <- rep(NA_character_, .N)
+  for (cc in cand) out <- fifelse(is.na(out) & cc %in% alt_keys, cc, out)
+  fcoalesce(out, .locus(pep_id))
+}]
+rows_dt[mutation_profile == "alt", ref_key := ref_key_3p]  
+
+# --------------- end of renaming efforts ----------------------
+# --------------------------------------------------------------
+
+design_dt=design_dt[sample_id!="unmatched",]
+counts_mat=counts_mat[, colnames(counts_mat) %in% design_dt$sample_id]
 
 stopifnot(identical(rows_dt$barcode, rownames(counts_mat)) & identical(design_dt$sample_id, colnames(counts_mat)))
 
@@ -77,7 +107,7 @@ screen_calc = function(dset, comparisons, min_count=30) {
   
   eset$origin = factor(make.names(eset$origin))
   eset$rep = factor(eset$rep)
-  DESeq2::sizeFactors(eset) = colSums(assay(dset)) / max(colSums(assay(dset)))
+  DESeq2::sizeFactors(eset) = colSums(assay(eset)) / max(colSums(assay(eset)))
   mod = DESeq2::DESeq(eset, fitType="local")
   
   get_result = function(comp) {
@@ -138,13 +168,28 @@ mrow_n  <- melt(norm_dt, id.vars = "guide",
                 variable.name = "variable", value.name = "norm")
 
 # attach metadata (rows_dt already aligned to counts_mat via the match() earlier)
-meta_cols <- c("guide","gene","gene_replicate","mutation_profile",
-               "gene_id","gene_name","guide_type")
-setnames(rows_dt, "barcode", "guide")
+meta_cols <- c("guide","gene","gene_replicate","mutation_profile","guide_type",
+               "gene_name","pep_id","gene_id","ref_key","ref_key_3p","ref_key_5p","is_fusion")
+if ("barcode" %in% names(rows_dt)) setnames(rows_dt, "barcode", "guide")
 mrow_n <- rows_dt[, ..meta_cols][mrow_n, on = "guide"]
+fwrite(mrow_n, paste0(output_dir, "gene_profiles.txt"))
 
-ggplot(mrow_n[gene_id == "TIMD4"], aes(variable, log10(norm + 1))) +
-  geom_point(aes(col = mutation_profile), size = 4, alpha = .5) +
+GENE_SHOW <- "MART1_ELA"
+
+rk <- mrow_n[gene_name == GENE_SHOW & mutation_profile != "ref", unique(ref_key)]
+pd <- rbind(
+  mrow_n[gene_name == GENE_SHOW & mutation_profile != "ref"],
+  mrow_n[mutation_profile == "ref" & ref_key %in% rk][
+    unique(mrow_n[gene_name == GENE_SHOW & mutation_profile != "ref",
+                  .(ref_key, panel = gene_id)]),
+    on = "ref_key", allow.cartesian = TRUE],
+  use.names = TRUE, fill = TRUE)
+pd[is.na(panel), panel := gene_id]          # alt rows keep their own id
+
+ggplot(pd, aes(variable, norm + 1)) +
+  geom_point(aes(col = mutation_profile), size = 3, alpha = .5) +
   geom_line(aes(group = guide)) +
+  facet_wrap(~ panel) + scale_y_log10() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
-  scale_color_manual(values = c(alt = "red3", ref = "grey", "TAA" = "gold"))
+  scale_color_manual(values = c(alt = "red3", ref = "grey", "TAA" = "gold")) +
+  labs(x = NULL, y = "normalised counts + 1")

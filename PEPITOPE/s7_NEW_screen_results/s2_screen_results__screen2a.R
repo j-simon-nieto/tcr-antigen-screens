@@ -9,7 +9,7 @@ library(DESeq2)
 set.seed(150799)
 theme_set(theme_classic())
 
-output_dir="PEPITOPE/s7_screen_results/output_screen_2a/updated_screen_results/"
+output_dir="PEPITOPE/s7_NEW_screen_results/output_screen_2a/updated_screen_results/"
 # updates to the logfc thresholds in deseq2
 # run on 18/Sept/26: fix fusion proteins
 if(!dir.exists(output_dir)){
@@ -36,20 +36,51 @@ design_dt=data.table(sample_id=colnames(counts_mat))
 design_dt[, rep:= stringr::str_split_i(sample_id, " ", -1)]
 design_dt[, origin:= stringr::str_split_i(sample_id, " ", 1)]
 
+# --------------- RENAMING STARTS ----------------------
+# ------------------------------------------------------
 setnames(rows_dt, "guide", "barcode")
 rows_dt <- rows_dt[match(rownames(counts_mat), rows_dt$barcode), ]
-rows_dt[, gene:=gsub("^_","",gene)]
+
+# # basic columns
 rows_dt[, gene_replicate:=stringr::str_split_i(gene, "_", -1)]
 rows_dt[, mutation_profile:=stringr::str_split_i(gene, "_", -2)]
-rows_dt[, gene_id:=stringr::str_split_i(gene, "_", 1)]
-rows_dt[, gene_name:=gsub("^_", "", stringr::str_split_i(gene_id, "\\-", 1))]
+rows_dt[, construct := sub("_[^_]+_[^_]+$", "", gene)] 
 
-rows_dt[, gene_id:= ifelse(mutation_profile=="TAA",
-                           stringr::str_split_i(gene, "_TAA_TAA", 1), 
-                           gene_id)]
-rows_dt[, gene_id:= ifelse(gene_id=="",
-                           gsub("^_","",stringr::str_split_i(gene, "--",1)),
-                           gene_id)]
+rows_dt[, gene_name := fifelse(mutation_profile == "TAA",
+                               sub("_TAA$", "", construct),   
+                               sub("_.*$", "", construct))]  
+rows_dt[, pep_id := fifelse(mutation_profile == "TAA", NA_character_,
+                            sub("^[^_]*_", "", construct))]
+rows_dt[, is_fusion := grepl("--", pep_id, fixed = TRUE)]
+rows_dt[, gene_id := fcase(mutation_profile == "TAA", gene_name,
+                           default = pep_id)]
+
+.locus <- function(x) sub("(?<=[0-9])(fs|[A-Za-z]+)[*]?$", "", sub("-[0-9]+$", "", x), perl = TRUE)
+
+# alts declare their key(s)
+rows_dt[, ref_key_3p := fcase(
+  mutation_profile != "alt", NA_character_,
+  is_fusion, sub("\\.fs$", "", sub("-[0-9]+$", "", sub("^.*--", "", pep_id))),
+  default = .locus(pep_id))]
+rows_dt[, ref_key_5p := fifelse(mutation_profile == "alt" & is_fusion,
+                                sub("--.*$", "", pep_id), NA_character_)]
+
+alt_keys <- unique(stats::na.omit(c(rows_dt$ref_key_3p, rows_dt$ref_key_5p)))
+
+# refs adopt whichever of their own candidate keys an alt is asking for
+rows_dt[mutation_profile == "ref", ref_key := {
+  cand <- list(pep_id, .locus(pep_id), gene_name, .locus(gene_name))
+  out  <- rep(NA_character_, .N)
+  for (cc in cand) out <- fifelse(is.na(out) & cc %in% alt_keys, cc, out)
+  fcoalesce(out, .locus(pep_id))
+}]
+rows_dt[mutation_profile == "alt", ref_key := ref_key_3p]  
+
+# --------------- end of renaming efforts ----------------------
+# --------------------------------------------------------------
+
+design_dt=design_dt[sample_id!="unmatched",]
+counts_mat=counts_mat[, colnames(counts_mat) %in% design_dt$sample_id]
 
 stopifnot(identical(rows_dt$barcode, rownames(counts_mat)) & identical(design_dt$sample_id, colnames(counts_mat)))
 
@@ -76,7 +107,7 @@ screen_calc = function(dset, comparisons, min_count=30) {
   
   eset$origin = factor(make.names(eset$origin))
   eset$rep = factor(eset$rep)
-  DESeq2::sizeFactors(eset) = colSums(assay(dset)) / max(colSums(assay(dset)))
+  DESeq2::sizeFactors(eset) = colSums(assay(eset)) / max(colSums(assay(eset)))
   mod = DESeq2::DESeq(eset, fitType="local")
   
   get_result = function(comp) {
@@ -159,37 +190,45 @@ ggplot(comp_db_sg_ut[baseMean_db>30 | baseMean_sg>30], aes(stat_sg, stat_db))+
 ggsave(paste0(output_dir, "Clus_vs_UT__Singlet_vs_UT.pdf"), width = 5, height=5)
 
 # # Analysis of top hits:
-plot_top_dropouts=
-  function(res_dt, top_n=40, filename_pdf){
-    res_dt[, gene_id:= ifelse(mutation_profile=="TAA",
-                              stringr::str_split_i(gene, "_TAA_TAA", 1), 
-                              gene_id)]
-    
-    
-    res_dt[, gene_id:= ifelse(gene_id=="",
-                              gsub("^_","",stringr::str_split_i(gene, "--",1)),
-                              gene_id)]
-    res_dt=res_dt[baseMean>30,]
-    setorder(res_dt, stat)
-    top30=unique(res_dt$gene_id)[1:top_n]
-    
-    res_dt[, min_stat:= min(stat), by="gene_id"]
-    sd_x=sd(res_dt$stat)
-    mean_x=mean(res_dt$stat)
-    
-    ggplot(res_dt[gene_id %in% top30], 
-           aes(reorder(gene_id, -min_stat), stat, col=mutation_profile))+
-      geom_point(size=0.8)+coord_flip()+
-      ggbeeswarm::geom_beeswarm(cex=.15)+
-      geom_hline(yintercept = c(mean_x-sd_x, mean_x, mean_x+sd_x), 
-                 lty=c("dashed", "solid","dashed"),
-                 lwd=c(.3,.5,.3))+
-      scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))+
-      geom_point(shape=1, data=res_dt[gene_id %in% top30 & padj<0.05], size=3, col="black")+
-      theme(legend.position = "none", axis.title = element_text(size=14))+
-      scale_y_reverse()+xlab("")+ylab("Drop-out confidence (T-stat)")
-    ggsave(paste0(output_dir, filename_pdf), width = 6, height=6)
-  }
+expand_for_plot <- function(dt) {
+  alts <- copy(dt[mutation_profile != "ref"])
+  alts[, plot_id := gene_id]
+  
+  refs <- copy(dt[mutation_profile == "ref"])
+  map  <- unique(alts[!is.na(ref_key), .(ref_key, plot_id)])
+  refs <- refs[map, on = "ref_key", allow.cartesian = TRUE]
+  
+  rbind(alts, refs, use.names = TRUE, fill = TRUE)
+}
+
+plot_top_dropouts = function(res_dt, top_n = 40, filename_pdf) {
+  
+  res_dt <- res_dt[baseMean > 30]
+  
+  # thresholds from the UNEXPANDED table -- refs are duplicated after expansion
+  # and would otherwise be double-counted in mean/sd
+  sd_x <- sd(res_dt$stat); mean_x <- mean(res_dt$stat)
+  
+  pd <- expand_for_plot(res_dt)
+  pd[, min_stat := min(stat[mutation_profile != "ref"]), by = plot_id]  # rank on alts only
+  pd=pd[!is.na(min_stat)]
+  
+  setorder(pd, min_stat)
+  top <- unique(pd$plot_id)[seq_len(min(top_n, uniqueN(pd$plot_id)))]
+  
+  ggplot(pd[plot_id %in% top],
+         aes(reorder(plot_id, -min_stat), stat, col = mutation_profile)) +
+    geom_point(size = 0.8) + coord_flip() +
+    ggbeeswarm::geom_beeswarm(cex = .15) +
+    geom_hline(yintercept = c(mean_x - sd_x, mean_x, mean_x + sd_x),
+               lty = c("dashed", "solid", "dashed"), lwd = c(.3, .5, .3)) +
+    scale_color_manual(values = c(alt = "red3", ref = "grey", "TAA" = "gold")) +
+    geom_point(shape = 1, data = pd[plot_id %in% top & padj < 0.05],
+               size = 3, col = "black") +
+    theme(legend.position = "none", axis.title = element_text(size = 14)) +
+    scale_y_reverse() + xlab("") + ylab("Drop-out confidence (T-stat)")
+  ggsave(paste0(output_dir, filename_pdf), width = 6, height = 6)
+}
 
 res_clus=results$`Cluster vs UT`
 plot_top_dropouts(res_clus, filename_pdf="top40_cluster_tcr_vs_ut_dropouts.pdf")
@@ -211,15 +250,28 @@ mrow_n  <- melt(norm_dt, id.vars = "guide",
                 variable.name = "variable", value.name = "norm")
 
 # attach metadata (rows_dt already aligned to counts_mat via the match() earlier)
-meta_cols <- c("guide","gene","gene_replicate","mutation_profile",
-               "gene_id","gene_name","guide_type")
-setnames(rows_dt, "barcode", "guide")
+meta_cols <- c("guide","gene","gene_replicate","mutation_profile","guide_type",
+               "gene_name","pep_id","gene_id","ref_key","ref_key_3p","ref_key_5p","is_fusion")
+if ("barcode" %in% names(rows_dt)) setnames(rows_dt, "barcode", "guide")
 mrow_n <- rows_dt[, ..meta_cols][mrow_n, on = "guide"]
+fwrite(mrow_n, paste0(output_dir, "gene_profiles.txt"))
 
-fwrite(mrow_n, paste0(output_dir,"gene_profiles.txt"))
+GENE_SHOW <- "TBX3"
 
-ggplot(mrow_n[gene_id == "TBX3"], aes(variable, log10(norm + 1))) +
-  geom_point(aes(col = mutation_profile), size = 4, alpha = .5) +
+rk <- mrow_n[gene_name == GENE_SHOW & mutation_profile != "ref", unique(ref_key)]
+pd <- rbind(
+  mrow_n[gene_name == GENE_SHOW & mutation_profile != "ref"],
+  mrow_n[mutation_profile == "ref" & ref_key %in% rk][
+    unique(mrow_n[gene_name == GENE_SHOW & mutation_profile != "ref",
+                  .(ref_key, panel = gene_id)]),
+    on = "ref_key", allow.cartesian = TRUE],
+  use.names = TRUE, fill = TRUE)
+pd[is.na(panel), panel := gene_id]          # alt rows keep their own id
+
+ggplot(pd, aes(variable, norm + 1)) +
+  geom_point(aes(col = mutation_profile), size = 3, alpha = .5) +
   geom_line(aes(group = guide)) +
+  facet_wrap(~ panel) + scale_y_log10() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
-  scale_color_manual(values = c(alt = "red3", ref = "grey", "TAA" = "gold"))
+  scale_color_manual(values = c(alt = "red3", ref = "grey", "TAA" = "gold")) +
+  labs(x = NULL, y = "normalised counts + 1")

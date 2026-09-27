@@ -1,3 +1,7 @@
+# # REIVIST TO REMOVE UNNCESSARY VARIABLES FROM DESQE COMPARISONS> ALSO PLORBABLY REMOVE THE INCLUSION OF 2B in this way.
+# # REPORT ON THE DECISIONS TAKEN THUS FAR
+
+
 library(pepitope)
 library(data.table)
 library(ggplot2)
@@ -9,7 +13,9 @@ library(DESeq2)
 set.seed(150799)
 theme_set(theme_classic())
 
-output_dir="PEPITOPE/s7_screen_results/output_screen_1/screen_results/"
+output_dir="PEPITOPE/s7_screen_results/output_screen_1/updated_screen_results/" 
+# updates to the logfc thresholds in deseq2
+# run on 18/Sept/26: fix fusion proteins
 if(!dir.exists(output_dir)){
   dir.create(output_dir)}
 
@@ -24,6 +30,16 @@ stats_dt=fread(paste0(output_dir, "../manual_qc_stats.txt"))
 counts_dt=fread(paste0(output_dir, "../manual_qc_counts.txt"))
 rows_dt=fread(paste0(output_dir, "../manual_qc_rows.txt"))
 
+# # NEW! 18/09/26
+# # # we have seen issues with the viability and killing capacity of UTs in this experiment
+# # # the same controls were taken in 2b without said issues
+# # # adding them as a "cleaner control" to see if it fixes the CMV issue (donor killing associated)
+counts_2b_dt=fread(paste0(output_dir, "../../output_screen_2b/manual_qc_counts.txt"))
+counts_mat_2b= as.matrix(as.data.frame(counts_2b_dt)[,3:ncol(counts_2b_dt)])
+rownames(counts_mat_2b)=counts_2b_dt$guide
+colnames(counts_mat_2b)=paste0("from2b__", colnames(counts_mat_2b))
+counts_mat_2b=counts_mat_2b[, -ncol(counts_mat_2b)]
+
 # 1/ Re-format and adapt DESEQ2
 # ================================================
 
@@ -31,12 +47,40 @@ rows_dt=fread(paste0(output_dir, "../manual_qc_rows.txt"))
 counts_mat= as.matrix(as.data.frame(counts_dt)[,3:ncol(counts_dt)])
 rownames(counts_mat)=counts_dt$guide
 
+# # join with screen 2b data
+stopifnot(identical(rownames(counts_mat), rownames(counts_mat_2b)))
+counts_mat=cbind(counts_mat,counts_mat_2b)
+
+# # visualise comparisons
+viz_counts=data.frame(counts_mat)
+ggplot(viz_counts, aes(from2b__UT...C+1, UT...C+1))+geom_point(alpha=.2,stroke=.2, size=.5)+scale_x_log10()+scale_y_log10()+geom_abline(slope=1, col="red")+
+ggplot(viz_counts, aes(from2b__UT...B+1, UT...B+1))+geom_point(alpha=.2,stroke=.2, size=.5)+scale_x_log10()+scale_y_log10()+geom_abline(slope=1, col="red")+
+ggplot(viz_counts, aes(from2b__UT...A+1, UT...A+1))+geom_point(alpha=.2,stroke=.2, size=.5)+scale_x_log10()+scale_y_log10()+geom_abline(slope=1, col="red")+
+ggplot(viz_counts, aes(from2b__UT...A+1, Cluster.T...A+1))+geom_point(alpha=.2,stroke=.2, size=.5)+scale_x_log10()+scale_y_log10()+geom_abline(slope=1, col="red")+
+ggplot(viz_counts, aes(from2b__UT...A+1, Single.T...A+1))+geom_point(alpha=.2,stroke=.2, size=.5)+scale_x_log10()+scale_y_log10()+geom_abline(slope=1, col="red")+
+ggplot(viz_counts, aes(from2b__UT...A+1, X1D3...B+1))+geom_point(alpha=.2,stroke=.2, size=.5)+scale_x_log10()+scale_y_log10()+geom_abline(slope=1, col="red")
+# # seems like the 2b samples have lower counts among the most detected barcodes
+
+ggplot(viz_counts, aes(B.only...A+1, from2b__B.only...A+1))+geom_point(alpha=.2,stroke=.2, size=.5)+scale_x_log10()+scale_y_log10()+geom_abline(slope=1, col="red")+
+  ggplot(viz_counts, aes(B.only...B+1, from2b__B.only...B+1))+geom_point(alpha=.2,stroke=.2, size=.5)+scale_x_log10()+scale_y_log10()+geom_abline(slope=1, col="red")+
+  ggplot(viz_counts, aes(B.only...C+1, from2b__B.only...C+1))+geom_point(alpha=.2,stroke=.2, size=.5)+scale_x_log10()+scale_y_log10()+geom_abline(slope=1, col="red")+
+  
+  ggplot(viz_counts, aes(B.only...A+1, UT...A+1))+geom_point(alpha=.2,stroke=.2, size=.5)+scale_x_log10()+scale_y_log10()+geom_abline(slope=1, col="red")+
+  ggplot(viz_counts, aes(B.only...B+1, UT...B+1))+geom_point(alpha=.2,stroke=.2, size=.5)+scale_x_log10()+scale_y_log10()+geom_abline(slope=1, col="red")+
+  ggplot(viz_counts, aes(B.only...C+1, UT...C+1))+geom_point(alpha=.2,stroke=.2, size=.5)+scale_x_log10()+scale_y_log10()+geom_abline(slope=1, col="red")+
+  
+  ggplot(viz_counts, aes(from2b__B.only...A+1, from2b__UT...A+1))+geom_point(alpha=.2,stroke=.2, size=.5)+scale_x_log10()+scale_y_log10()+geom_abline(slope=1, col="red")+
+  ggplot(viz_counts, aes(from2b__B.only...B+1, from2b__UT...B+1))+geom_point(alpha=.2,stroke=.2, size=.5)+scale_x_log10()+scale_y_log10()+geom_abline(slope=1, col="red")+
+  ggplot(viz_counts, aes(from2b__B.only...C+1, from2b__UT...C+1))+geom_point(alpha=.2,stroke=.2, size=.5)+scale_x_log10()+scale_y_log10()+geom_abline(slope=1, col="red")
+
+
 design_dt=data.table(sample_id=colnames(counts_mat))
 design_dt[, rep:= stringr::str_split_i(sample_id, " ", -1)]
 design_dt[, origin:= stringr::str_split_i(sample_id, " ", 1)]
 
 setnames(rows_dt, "guide", "barcode")
 rows_dt <- rows_dt[match(rownames(counts_mat), rows_dt$barcode), ]
+rows_dt[, gene:=gsub("^_","",gene)]
 rows_dt[, gene_replicate:=stringr::str_split_i(gene, "_", -1)]
 rows_dt[, mutation_profile:=stringr::str_split_i(gene, "_", -2)]
 rows_dt[, gene_id:=stringr::str_split_i(gene, "_", 1)]
@@ -80,6 +124,9 @@ screen_calc = function(dset, comparisons, min_count=30) {
   
   get_result = function(comp) {
     DESeq2::results(mod, contrast=c("origin", comp)) |>
+      # lfcThreshold = 0.1, # significance tested as stronger than 0.25
+      # alpha = .1, # this is default
+      # altHypothesis = "greaterAbs"
       as.data.frame() |>
       tibble::rownames_to_column("barcode") |>
       as_tibble() |>
@@ -102,6 +149,10 @@ results=screen_calc(dset, comparisons=list(c("UT", "B"),
                                            c("X1D3", "UT"),
                                            c("Single", "UT"),
                                            c("Cluster", "UT"),
+                                           c("from2b__UT", "UT"),
+                                           c("X1D3", "from2b__UT"),
+                                           c("Single", "from2b__UT"),
+                                           c("Cluster", "from2b__UT"),
                                            c("X1D3", "B"),
                                            c("Single", "B"),
                                            c("Cluster", "B"),
@@ -117,46 +168,63 @@ fwrite(results_agg, paste0(output_dir, "screen1_results.txt"))
 ggplot(results_agg[baseMean>100], aes(log2FoldChange, -log10(padj)))+geom_point(aes(col=mutation_profile))+
   ggrepel::geom_text_repel(data=results_agg[padj<1e-10],aes(label=gene_name))+
   facet_wrap(~comparison)+
-  scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))
+  scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))+
+  geom_vline(col="grey70", xintercept = c(-.1,.1), lty="dashed")
 ggsave(paste0(output_dir, "volcano_plot_overview.pdf"), width = 12, height=8)
 
-ggplot(results_agg[baseMean>100], aes(baseMean, log2FoldChange))+
+ggplot(results_agg[baseMean>0], aes(baseMean, log2FoldChange))+
   geom_point(aes(col=mutation_profile), size = 1, alpha=1)+
   ggrepel::geom_text_repel(data=results_agg[padj<1e-5],aes(label=gene_name), size=2.2)+
   facet_wrap(~comparison)+scale_x_log10()+
   geom_point(shape=1, data=results_agg[padj<0.05], size=1)+
-  scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))
+  scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))+
+  geom_vline(col="grey70", xintercept = c(100), lty="dashed")
 ggsave(paste0(output_dir, "MA_like_plot_overview.pdf"), width = 12, height=8)
 
-ggplot(results_agg[baseMean>100 & comparison=="Cluster vs X1D3"], aes(baseMean, log2FoldChange))+
+ggplot(results_agg[baseMean>100 & (comparison%in% c("Cluster vs UT", "Single vs UT"))], aes(baseMean, log2FoldChange))+
   geom_point(aes(col=mutation_profile), size = 1, alpha=1)+
-  ggrepel::geom_text_repel(data=results_agg[baseMean>100 &padj<0.05& comparison=="Cluster vs X1D3"],aes(label=gene_name), size=2, max.overlaps = 15)+
+  ggrepel::geom_text_repel(data=results_agg[baseMean>100 &padj<0.05& comparison%in% c("Cluster vs UT", "Single vs UT")],
+                           aes(label=gene_id), size=2.5, max.overlaps = 15)+
   facet_wrap(~comparison)+scale_x_log10()+
-  geom_point(shape=1, data=results_agg[baseMean>100 &padj<0.05& comparison=="Cluster vs X1D3"], size=1)+
+  geom_point(shape=1, data=results_agg[baseMean>100 &padj<0.05& comparison%in% c("Cluster vs UT", "Single vs UT")], size=1)+
   scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))
-ggsave(paste0(output_dir, "MA_like_plot_clusters.pdf"), width = 6, height=4)
+ggsave(paste0(output_dir, "MA_like_plot_clusters_and_singlets_vs_UT.pdf"), width = 11, height=4)
 
-ggplot(results_agg[baseMean>100 & grepl("vs X1D3", comparison)], aes(baseMean, log2FoldChange))+
+ggplot(results_agg[grepl("^Clus|^Sin|^X1", comparison) & grepl("vs UT|from2b", comparison)], aes(baseMean, log2FoldChange))+
   geom_point(aes(col=mutation_profile), size = 1, alpha=1)+
-  ggrepel::geom_text_repel(data=results_agg[padj<1e-5 & grepl("vs X1D3", comparison)],aes(label=gene_id), size=2.2)+
-  facet_wrap(~comparison)+scale_x_log10()+
-  geom_point(shape=1, data=results_agg[padj<0.05 & grepl("vs X1D3", comparison)], size=1)+
+  ggrepel::geom_text_repel(data=results_agg[padj<1e-5 & grepl("^Clus|^Sin|^X1", comparison)  & grepl("vs UT|from2b", comparison)],
+                           aes(label=gene_id), size=2.5, force = .3)+
+  facet_wrap(~comparison, nrow=3)+scale_x_log10()+
+  geom_point(shape=1, data=results_agg[padj<0.05 & grepl("^Clus|^Sin|^X1", comparison)  & grepl("vs UT|from2b", comparison)], size=1)+
   scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))+
-  geom_hline(yintercept = 0)
+  geom_hline(yintercept = c(0),lwd=1)
+ggsave(paste0(output_dir, "MA_like_plot_clusters_and_singlets_and_1D3_vs_UT.pdf"), width = 8, height=8)
 
-comp_db_sg_ut=merge(results$`Cluster vs X1D3`, results$`Single vs X1D3`, by=names(rows_dt)[!grepl(" ", names(rows_dt))], suffixes=c("_db", "_sg"))
-
+comp_db_sg_ut=merge(results$`Cluster vs UT`, results$`Single vs UT`, by=names(rows_dt)[!grepl(" ", names(rows_dt))], suffixes=c("_db", "_sg"))
 ggplot(comp_db_sg_ut[baseMean_db>100 | baseMean_sg>100], aes(stat_sg, stat_db))+
   geom_point(aes(col=mutation_profile), size = 2, alpha=1)+
   ggrepel::geom_text_repel(data=comp_db_sg_ut[(baseMean_db>100 | baseMean_sg>100) & 
                                                 (padj_db<0.05|padj_sg<0.05)],
                            aes(label=gene_id), size=3, max.overlaps = 20)+
   scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))+
-  labs(y="Stat: Cluster TCRs vs 1D3", x="Stat: Singlet TCRs vs 1D3")+
+  labs(y="Stat: Cluster TCRs vs UT", x="Stat: Singlet TCRs vs UT")+
   theme(legend.position = "none", axis.title = element_text(size=14))+
   geom_hline(yintercept = 0, lty="dashed", col="grey")+
   geom_vline(xintercept = 0, lty="dashed", col="grey")
-ggsave(paste0(output_dir, "Clus_vs_1d3__Singlet_vs_1d3.pdf"), width = 5, height=5)
+ggsave(paste0(output_dir, "Clus_vs_UT__Singlet_vs_UT.pdf"), width = 5, height=5)
+
+new_comp_db_sg_ut=merge(results$`Cluster vs from2b__UT`, results$`Single vs from2b__UT`, by=names(rows_dt)[!grepl(" ", names(rows_dt))], suffixes=c("_db", "_sg"))
+ggplot(new_comp_db_sg_ut[baseMean_db>100 | baseMean_sg>100], aes(stat_sg, stat_db))+
+  geom_point(aes(col=mutation_profile), size = 2, alpha=1)+
+  ggrepel::geom_text_repel(data=new_comp_db_sg_ut[(baseMean_db>100 | baseMean_sg>100) & 
+                                                (padj_db<0.05|padj_sg<0.05)],
+                           aes(label=gene_id), size=2.4, max.overlaps = 30, force=.1)+
+  scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))+
+  labs(y="Stat: Cluster TCRs vs UT (s2B)", x="Stat: Singlet TCRs vs UT (s2B)")+
+  theme(legend.position = "none", axis.title = element_text(size=14))+
+  geom_hline(yintercept = 0, lty="dashed", col="grey")+
+  geom_vline(xintercept = 0, lty="dashed", col="grey")
+ggsave(paste0(output_dir, "new_2b_controls_Clus_vs_UT__Singlet_vs_UT.pdf"), width = 5, height=5)
 
 comp_db_ctrls=merge(results$`Cluster vs X1D3`, results$`Cluster vs UT`, by=names(rows_dt)[!grepl(" ", names(rows_dt))], suffixes=c("_1d3", "_ut"))
 ggplot(comp_db_ctrls[baseMean_1d3>100 | baseMean_ut>100], aes(stat_ut, stat_1d3))+
@@ -169,8 +237,10 @@ ggplot(comp_db_ctrls[baseMean_1d3>100 | baseMean_ut>100], aes(stat_ut, stat_1d3)
   theme(legend.position = "none", axis.title = element_text(size=14))+
   geom_hline(yintercept = 0, lty="dashed", col="grey")+
   geom_vline(xintercept = 0, lty="dashed", col="grey")
+ggsave(paste0(output_dir, "Clus_vs_UT__Cluster_vs_1D3.pdf"), width = 5, height=5)
 
-comp_sg_ctrls=merge(results$`Single vs X1D3`, results$`Single vs UT`, by=names(rows_dt)[!grepl(" ", names(rows_dt))], suffixes=c("_1d3", "_ut"))
+comp_sg_ctrls=merge(results$`Single vs X1D3`, results$`Single vs UT`, 
+                    by=names(rows_dt)[!grepl(" ", names(rows_dt))], suffixes=c("_1d3", "_ut"))
 ggplot(comp_sg_ctrls[baseMean_1d3>100 | baseMean_ut>100], aes(stat_ut, stat_1d3))+
   geom_point(aes(col=mutation_profile), size = 2, alpha=1)+
   ggrepel::geom_text_repel(data=comp_sg_ctrls[(baseMean_1d3>100 | baseMean_ut>100) & 
@@ -181,13 +251,42 @@ ggplot(comp_sg_ctrls[baseMean_1d3>100 | baseMean_ut>100], aes(stat_ut, stat_1d3)
   theme(legend.position = "none", axis.title = element_text(size=14))+
   geom_hline(yintercept = 0, lty="dashed", col="grey")+
   geom_vline(xintercept = 0, lty="dashed", col="grey")
+ggsave(paste0(output_dir, "Single_vs_UT__Singlet_vs_1D3.pdf"), width = 5, height=5)
+
+comp_sg_ctrls_2b=merge(results$`Single vs from2b__UT`, results$`Single vs UT`, 
+                    by=names(rows_dt)[!grepl(" ", names(rows_dt))], suffixes=c("_from_2b_ut", "_ut"))
+ggplot(comp_sg_ctrls_2b[baseMean_from_2b_ut>100 | baseMean_ut>100], aes(stat_ut,stat_from_2b_ut))+
+  geom_point(aes(col=mutation_profile), size = 2, alpha=1)+
+  ggrepel::geom_text_repel(data=comp_sg_ctrls_2b[(baseMean_from_2b_ut>100 | baseMean_ut>100) & 
+                                                (padj_from_2b_ut<0.05|padj_ut<0.05)],
+                           aes(label=gene_id), size=2.4, max.overlaps = 20)+
+  scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))+
+  labs(y="Stat: Single TCRs vs UT (s2B)", x="Stat: Single TCRs vs UT")+
+  theme(legend.position = "none", axis.title = element_text(size=14))+
+  geom_hline(yintercept = 0, lty="dashed", col="grey")+
+  geom_vline(xintercept = 0, lty="dashed", col="grey")
+ggsave(paste0(output_dir, "Single_vs_UT__Singlet_vs_UT_from_2b.pdf"), width = 5, height=5)
+
+comp_db_ctrls_2b=merge(results$`Cluster vs from2b__UT`, results$`Cluster vs UT`, 
+                       by=names(rows_dt)[!grepl(" ", names(rows_dt))], suffixes=c("_from_2b_ut", "_ut"))
+ggplot(comp_db_ctrls_2b[baseMean_from_2b_ut>100 | baseMean_ut>100], aes(stat_ut,stat_from_2b_ut))+
+  geom_point(aes(col=mutation_profile), size = 2, alpha=1)+
+  ggrepel::geom_text_repel(data=comp_db_ctrls_2b[(baseMean_from_2b_ut>100 | baseMean_ut>100) & 
+                                                (padj_from_2b_ut<0.05|padj_ut<0.05)],
+                           aes(label=gene_id), size=2.4, max.overlaps = 20)+
+  scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))+
+  labs(y="Stat: Cluster TCRs vs UT (s2B)", x="Stat: Cluster TCRs vs UT")+
+  theme(legend.position = "none", axis.title = element_text(size=14))+
+  geom_hline(yintercept = 0, lty="dashed", col="grey")+
+  geom_vline(xintercept = 0, lty="dashed", col="grey")
+ggsave(paste0(output_dir, "Cluster_vs_UT__Clustert_vs_UT_from_2b.pdf"), width = 5, height=5)
 
 # # Analysis of top hits:
 # -----------------------
 plot_top_dropouts=
   function(res_dt, top_n=40, filename_pdf){
 
-  res_dt=res_dt[baseMean>100,]
+  res_dt=res_dt[baseMean>30,]
   setorder(res_dt, stat)
   top30=unique(res_dt$gene_id)[1:top_n]
   
@@ -241,3 +340,30 @@ ggplot(mrow_n[gene_id == "DIDO1"], aes(variable, log10(norm + 1))) +
   geom_line(aes(group = guide)) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
   scale_color_manual(values = c(alt = "red3", ref = "grey", "TAA" = "gold"))
+
+
+
+# DIAGNOSIS: we see population shifts, we want to explore where are they coming from
+
+design_dt[, grp := factor(paste(fifelse(grepl("^from2b__", sample_id), "s2b", "s1"),
+                                sub("^from2b__", "", origin), sep="."))]
+
+dds <- DESeqDataSetFromMatrix(counts_mat, design_dt, ~ 0 + grp, rowData=rows_dt)
+dds <- dds[matrixStats::rowMaxs(counts(dds)) >= 30, ]
+sizeFactors(dds) <- colSums(counts(dds)) / max(colSums(counts(dds)))
+dds <- DESeq(dds, fitType="local")
+
+did <- function(a, b, c, d) {                      # (a-b) - (c-d)
+  v <- setNames(numeric(length(resultsNames(dds))), resultsNames(dds))
+  v[paste0("grp", c(a, b, c, d))] <- c(1, -1, -1, 1); v
+}
+
+chk <- function(r) as.data.table(r)[!is.na(padj), .(n=.N, nsig=sum(padj < 0.05),
+                                                    medLFC=round(median(log2FoldChange), 3),
+                                                    trend=round(cor(log10(baseMean), log2FoldChange), 3))]
+
+rbind(placebo = chk(results(dds, contrast=did("s1.1D3","s1.B","s2b.1D3","s2b.B"))),
+      ut_delta = chk(results(dds, contrast=did("s1.UT","s1.B","s2b.UT","s2b.B"))),
+      idcol="test")
+
+chk(results(dds, contrast = did("s1.1D3","s2b.1D3","s1.UT","s2b.UT")))
