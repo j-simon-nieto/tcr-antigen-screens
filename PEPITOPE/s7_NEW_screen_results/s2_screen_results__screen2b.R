@@ -15,6 +15,8 @@ output_dir="PEPITOPE/s7_NEW_screen_results/output_screen_2b/updated_screen_resul
 if(!dir.exists(output_dir)){
   dir.create(output_dir)}
 
+source("PEPITOPE/s7_NEW_screen_results/palette_screens.R")
+
 # Grabbing TAA big library for barcodes
 
 # 0/ Load files
@@ -38,6 +40,21 @@ design_dt[, origin:= stringr::str_split_i(sample_id, " ", 1)]
 
 # --------------- RENAMING STARTS ----------------------
 # ------------------------------------------------------
+# # revisiting on 8th Oct to include the reference pairs to some TAAs:
+hotspots=fread("PEPITOPE/s7_NEW_screen_results/screen_interpretation/Large_TAA2.0_hotspots.csv")
+hotspots=hotspots[,.(gene_id=pep_id, mutation_profile= "TAA", type_TAA=type, ref_key)]
+hotspots[, ref_key:= sub(".$", "", ref_key)]
+# # model antigens: mut or ref appended as indication
+model_antigens=data.table(gene_id=scan("PEPITOPE/s7_NEW_screen_results/screen_interpretation/Model_antigens.txt", 
+                                       what="characters"),mutation_profile= "TAA")
+model_antigens=model_antigens[grepl("mut|wt", gene_id),]
+model_antigens[, type_TAA:= ifelse(grepl("mut$", gene_id), "alt", "ref")]
+model_antigens[, ref_key:= sub("mut$|wt$", "", gene_id)]
+
+taa_wt_ref_dt=rbindlist(list(hotspots, model_antigens))
+taa_wt_ref_dt=taa_wt_ref_dt[, .(gene_id, type_TAA, ref_key)]
+# loading new info ends here
+
 setnames(rows_dt, "guide", "barcode")
 rows_dt <- rows_dt[match(rownames(counts_mat), rows_dt$barcode), ]
 
@@ -75,6 +92,18 @@ rows_dt[mutation_profile == "ref", ref_key := {
   fcoalesce(out, .locus(pep_id))
 }]
 rows_dt[mutation_profile == "alt", ref_key := ref_key_3p]  
+
+# # 8th Oct: add new data on TAA alt/wt
+reclassified_taa_ids=taa_wt_ref_dt$gene_id
+rows_dt[taa_wt_ref_dt[gene_id %in% reclassified_taa_ids], on = "gene_id",
+        `:=`(type_TAA = i.type_TAA, ref_key = i.ref_key)]
+
+rows_dt[, mutation_profile := fcase(
+  mutation_profile %in% c("alt","ref"),paste0("NeoAg_", mutation_profile),
+  mutation_profile == "TAA" & type_TAA %in% "ref","TAA_ref",
+  mutation_profile == "TAA" & grepl("CMV|EBV|HPV|FLU|SARS", gene_id), "ViralAg",
+  mutation_profile == "TAA","TAA",
+  default = NA_character_)]
 
 # --------------- end of renaming efforts ----------------------
 # --------------------------------------------------------------
@@ -144,7 +173,7 @@ ggplot(results_agg[baseMean>100], aes(log2FoldChange, -log10(padj)))+
   #geom_point(shape=1, data=results_agg[padj<0.05 & baseMean>100], size=2)+
   ggrepel::geom_text_repel(data=results_agg[baseMean>100&padj<1e-10],aes(label=gene_name))+
   facet_wrap(~comparison)+
-  scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))
+  scale_color_manual(values=palette_mutprof)
 ggsave(paste0(output_dir, "Volcano_plot.pdf"), width = 12, height=5)
 
 ggplot(results_agg[baseMean>100], aes(baseMean, log2FoldChange))+
@@ -152,7 +181,7 @@ ggplot(results_agg[baseMean>100], aes(baseMean, log2FoldChange))+
   ggrepel::geom_text_repel(data=results_agg[padj<1e-5 & baseMean>100],aes(label=gene_name))+
   facet_wrap(~comparison)+scale_x_log10()+
   geom_point(shape=1, data=results_agg[padj<0.05 & baseMean>100], size=2)+
-  scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))
+  scale_color_manual(values=palette_mutprof)
 ggsave(paste0(output_dir, "MA_like_plot.pdf"), width = 12, height=5)
 
 # # individual genes
@@ -176,11 +205,11 @@ fwrite(mrow_n, paste0(output_dir, "gene_profiles.txt"))
 
 GENE_SHOW <- "MART1_ELA"
 
-rk <- mrow_n[gene_name == GENE_SHOW & mutation_profile != "ref", unique(ref_key)]
+rk <- mrow_n[gene_name == GENE_SHOW & !grepl("ref", mutation_profile), unique(ref_key)]
 pd <- rbind(
-  mrow_n[gene_name == GENE_SHOW & mutation_profile != "ref"],
-  mrow_n[mutation_profile == "ref" & ref_key %in% rk][
-    unique(mrow_n[gene_name == GENE_SHOW & mutation_profile != "ref",
+  mrow_n[gene_name == GENE_SHOW & !grepl("ref", mutation_profile)],
+  mrow_n[grepl("ref", mutation_profile) & ref_key %in% rk][
+    unique(mrow_n[gene_name == GENE_SHOW & !grepl("ref", mutation_profile),
                   .(ref_key, panel = gene_id)]),
     on = "ref_key", allow.cartesian = TRUE],
   use.names = TRUE, fill = TRUE)
@@ -191,5 +220,5 @@ ggplot(pd, aes(variable, norm + 1)) +
   geom_line(aes(group = guide)) +
   facet_wrap(~ panel) + scale_y_log10() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
-  scale_color_manual(values = c(alt = "red3", ref = "grey", "TAA" = "gold")) +
+  scale_color_manual(values = palette_mutprof) +
   labs(x = NULL, y = "normalised counts + 1")

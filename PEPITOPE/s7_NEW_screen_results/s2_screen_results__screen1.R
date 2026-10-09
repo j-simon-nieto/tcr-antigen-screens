@@ -16,6 +16,7 @@ output_dir="PEPITOPE/s7_NEW_screen_results/output_screen_1/updated_screen_result
 if(!dir.exists(output_dir)){
   dir.create(output_dir)}
 
+source("PEPITOPE/s7_NEW_screen_results/palette_screens.R")
 
 # Grabbing TAA big library for barcodes
 
@@ -54,6 +55,21 @@ design_dt[, origin:= stringr::str_split_i(sample_id, " ", 1)]
 
 # --------------- RENAMING STARTS ----------------------
 # ------------------------------------------------------
+
+# # revisiting on 8th Oct to include the reference pairs to some TAAs:
+hotspots=fread("PEPITOPE/s7_NEW_screen_results/screen_interpretation/Large_TAA2.0_hotspots.csv")
+hotspots=hotspots[,.(gene_id=pep_id, mutation_profile= "TAA", type_TAA=type, ref_key)]
+hotspots[, ref_key:= sub(".$", "", ref_key)]
+# # model antigens: mut or ref appended as indication
+model_antigens=data.table(gene_id=scan("PEPITOPE/s7_NEW_screen_results/screen_interpretation/Model_antigens.txt", 
+                         what="characters"),mutation_profile= "TAA")
+model_antigens=model_antigens[grepl("mut|wt", gene_id),]
+model_antigens[, type_TAA:= ifelse(grepl("mut$", gene_id), "alt", "ref")]
+model_antigens[, ref_key:= sub("mut$|wt$", "", gene_id)]
+
+taa_wt_ref_dt=rbindlist(list(hotspots, model_antigens))
+# loading new info ends here
+
 setnames(rows_dt, "guide", "barcode")
 rows_dt <- rows_dt[match(rownames(counts_mat), rows_dt$barcode), ]
 
@@ -91,6 +107,19 @@ rows_dt[mutation_profile == "ref", ref_key := {
   fcoalesce(out, .locus(pep_id))
 }]
 rows_dt[mutation_profile == "alt", ref_key := ref_key_3p]  
+
+# # 8th Oct: add new data on TAA alt/wt
+reclassified_taa_ids=taa_wt_ref_dt$gene_id
+rows_dt[taa_wt_ref_dt[gene_id %in% reclassified_taa_ids], on = "gene_id",
+        `:=`(type_TAA = i.type_TAA, ref_key = i.ref_key)]
+
+rows_dt[, mutation_profile := fcase(
+  mutation_profile %in% c("alt","ref"),paste0("NeoAg_", mutation_profile),
+  mutation_profile == "TAA" & type_TAA %in% "ref","TAA_ref",
+  mutation_profile == "TAA" & grepl("CMV|EBV|HPV|FLU|SARS", gene_id), "ViralAg",
+  mutation_profile == "TAA","TAA",
+  default = NA_character_)]
+
 
 # --------------- end of renaming efforts ----------------------
 # --------------------------------------------------------------
@@ -178,7 +207,7 @@ fwrite(results_agg, paste0(output_dir, "screen1_results.txt"))
 ggplot(results_agg[baseMean>100], aes(log2FoldChange, -log10(padj)))+geom_point(aes(col=mutation_profile))+
   ggrepel::geom_text_repel(data=results_agg[padj<1e-10],aes(label=gene_name))+
   facet_wrap(~comparison)+
-  scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))+
+  scale_color_manual(values=palette_mutprof)+
   geom_vline(col="grey70", xintercept = c(-.1,.1), lty="dashed")
 ggsave(paste0(output_dir, "volcano_plot_overview.pdf"), width = 12, height=8)
 
@@ -187,7 +216,7 @@ ggplot(results_agg[baseMean>0], aes(baseMean, log2FoldChange))+
   ggrepel::geom_text_repel(data=results_agg[padj<1e-5],aes(label=gene_name), size=2.2)+
   facet_wrap(~comparison)+scale_x_log10()+
   geom_point(shape=1, data=results_agg[padj<0.05], size=1)+
-  scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))+
+  scale_color_manual(values=palette_mutprof)+
   geom_vline(col="grey70", xintercept = c(100), lty="dashed")
 ggsave(paste0(output_dir, "MA_like_plot_overview.pdf"), width = 12, height=8)
 
@@ -197,7 +226,7 @@ ggplot(results_agg[baseMean>100 & (comparison%in% c("Cluster vs UT", "Single vs 
                            aes(label=gene_id), size=2.5, max.overlaps = 15)+
   facet_wrap(~comparison)+scale_x_log10()+
   geom_point(shape=1, data=results_agg[baseMean>100 &padj<0.05& comparison%in% c("Cluster vs UT", "Single vs UT")], size=1)+
-  scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))
+  scale_color_manual(values=palette_mutprof)
 ggsave(paste0(output_dir, "MA_like_plot_clusters_and_singlets_vs_UT.pdf"), width = 11, height=4)
 
 comp_db_sg_ut=merge(results$`Cluster vs UT`, results$`Single vs UT`, by=names(rows_dt)[!grepl(" ", names(rows_dt))], suffixes=c("_db", "_sg"))
@@ -206,7 +235,7 @@ ggplot(comp_db_sg_ut[baseMean_db>100 | baseMean_sg>100], aes(stat_sg, stat_db))+
   ggrepel::geom_text_repel(data=comp_db_sg_ut[(baseMean_db>100 | baseMean_sg>100) & 
                                                 (padj_db<0.05|padj_sg<0.05)],
                            aes(label=gene_id), size=3, max.overlaps = 20)+
-  scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))+
+  scale_color_manual(values=palette_mutprof)+
   labs(y="Stat: Cluster TCRs vs UT", x="Stat: Singlet TCRs vs UT")+
   theme(legend.position = "none", axis.title = element_text(size=14))+
   geom_hline(yintercept = 0, lty="dashed", col="grey")+
@@ -219,7 +248,7 @@ ggplot(comp_db_ctrls[baseMean_1d3>100 | baseMean_ut>100], aes(stat_ut, stat_1d3)
   ggrepel::geom_text_repel(data=comp_db_ctrls[(baseMean_1d3>100 | baseMean_ut>100) & 
                                                 (padj_1d3<0.05|padj_ut<0.05)],
                            aes(label=gene_id), size=3, max.overlaps = 20)+
-  scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))+
+  scale_color_manual(values=palette_mutprof)+
   labs(y="Stat: Cluster TCRs vs 1D3", x="Stat: Cluster TCRs vs UT")+
   theme(legend.position = "none", axis.title = element_text(size=14))+
   geom_hline(yintercept = 0, lty="dashed", col="grey")+
@@ -233,7 +262,7 @@ ggplot(comp_sg_ctrls[baseMean_1d3>100 | baseMean_ut>100], aes(stat_ut, stat_1d3)
   ggrepel::geom_text_repel(data=comp_sg_ctrls[(baseMean_1d3>100 | baseMean_ut>100) & 
                                                 (padj_1d3<0.05|padj_ut<0.05)],
                            aes(label=gene_id), size=3, max.overlaps = 20)+
-  scale_color_manual(values=c(alt="red3", ref="grey", "TAA"="gold"))+
+  scale_color_manual(values=palette_mutprof)+
   labs(y="Stat: Single TCRs vs 1D3", x="Stat: Single TCRs vs UT")+
   theme(legend.position = "none", axis.title = element_text(size=14))+
   geom_hline(yintercept = 0, lty="dashed", col="grey")+
@@ -276,7 +305,7 @@ plot_top_dropouts = function(res_dt, top_n = 40, filename_pdf) {
     ggbeeswarm::geom_beeswarm(cex = .15) +
     geom_hline(yintercept = c(mean_x - sd_x, mean_x, mean_x + sd_x),
                lty = c("dashed", "solid", "dashed"), lwd = c(.3, .5, .3)) +
-    scale_color_manual(values = c(alt = "red3", ref = "grey", "TAA" = "gold")) +
+    scale_color_manual(values = palette_mutprof) +
     geom_point(shape = 1, data = pd[plot_id %in% top & padj < 0.05],
                size = 3, col = "black") +
     theme(legend.position = "none", axis.title = element_text(size = 14)) +
@@ -312,11 +341,11 @@ fwrite(mrow_n, paste0(output_dir, "gene_profiles.txt"))
 
 GENE_SHOW <- "GUCA1A"
 
-rk <- mrow_n[gene_name == GENE_SHOW & mutation_profile != "ref", unique(ref_key)]
+rk <- mrow_n[gene_name == GENE_SHOW & !grepl("ref", mutation_profile), unique(ref_key)]
 pd <- rbind(
-  mrow_n[gene_name == GENE_SHOW & mutation_profile != "ref"],
-  mrow_n[mutation_profile == "ref" & ref_key %in% rk][
-    unique(mrow_n[gene_name == GENE_SHOW & mutation_profile != "ref",
+  mrow_n[gene_name == GENE_SHOW & !grepl("ref", mutation_profile)],
+  mrow_n[grepl("ref", mutation_profile) & ref_key %in% rk][
+    unique(mrow_n[gene_name == GENE_SHOW & !grepl("ref", mutation_profile),
                   .(ref_key, panel = gene_id)]),
     on = "ref_key", allow.cartesian = TRUE],
   use.names = TRUE, fill = TRUE)
@@ -327,6 +356,6 @@ ggplot(pd, aes(variable, norm + 1)) +
   geom_line(aes(group = guide)) +
   facet_wrap(~ panel) + scale_y_log10() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
-  scale_color_manual(values = c(alt = "red3", ref = "grey", "TAA" = "gold")) +
+  scale_color_manual(values = palette_mutprof) +
   labs(x = NULL, y = "normalised counts + 1")
 

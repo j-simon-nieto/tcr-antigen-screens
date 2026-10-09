@@ -19,6 +19,24 @@
 # mutation-level ONLY if gene_id encodes the mutation. If one gene carries >1
 # mutation under the same gene_id, pass unit="pep_id" or the grain is wrong and
 # it will fail silently.
+#
+# -----------------------------------------------------------------------------
+# 2026-10-09 fixes (a-f):
+#   (a) roll_units now emits `ag_class` (neo | TAA); viral antigens fold into
+#       TAA and are kept as candidates, judged under the same conditions.
+#       All downstream `class=="neo"` / bare `mutation_profile` refs that
+#       crashed hit_prioritisation now use ag_class.
+#   (b) TAA WT key is transported into ref_key_3p at load (.transport_taa_refkey)
+#       so the existing map/roll_units machinery pairs TAA alts with their WT.
+#   (c) create_list merges on `unit` only, then coalesces class / ag_class, so a
+#       unit whose class flips between pools is no longer split into half-NA rows.
+#   (d) best_tier = pmin across pools kept intentionally (best hit across the
+#       board; a veto in one pool is NOT terminal).
+#   (e) .check_keys now also requires ref_key_3p / ref_key_5p (indexed
+#       unconditionally by roll_units).
+#   (f) non-fatal load-time check that TAA ref_keys survived upstream integration.
+#   margin is now ref-based whenever a WT partner exists (neo OR TAA), donor
+#   control only as fallback -- consistent with treating TAA/viral like neo.
 # =============================================================================
 
 library(data.table)
@@ -27,19 +45,55 @@ library(ggrepel)
 theme_set(theme_classic())
 set.seed(150799)
 
-output_dir <- "PEPITOPE/s7_NEW_screen_results/Hit_selection/stratified_output/"
+output_dir <- "PEPITOPE/s7_NEW_screen_results/Hit_selection/stratified_output_TAAwt/"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
 .min_safe <- function(x) if (length(x) && any(!is.na(x))) min(x, na.rm = TRUE) else NA_real_
 .max_safe <- function(x) if (length(x) && any(!is.na(x))) max(x, na.rm = TRUE) else NA_real_
 
+# (e) ref_key_3p / ref_key_5p added: roll_units indexes them unconditionally,
+#     so a results table that predates the fusion work should fail here loudly.
 .check_keys <- function(dt) {
-  need <- c("gene_id", "pep_id", "ref_key", "is_fusion", "mutation_profile")
+  need <- c("gene_id", "pep_id", "ref_key", "ref_key_3p", "ref_key_5p",
+            "is_fusion", "mutation_profile")
   miss <- setdiff(need, names(dt))
   if (length(miss))
     stop(sprintf("results table is missing %s -- re-run the screen script", paste(miss, collapse = ", ")))
   dt
 }
+
+# (b) TAA/viral test rows carry their WT key in `ref_key` but NOT in
+#     ref_key_3p/5p (those are NA for non-fusions and were never populated for
+#     TAAs). Move it into ref_key_3p so roll_units' `map` -- which only reads
+#     ref_key_3p/5p -- finds the WT partner. This is the minimal transport you
+#     asked for; nothing downstream has to learn about TAAs.
+.transport_taa_refkey <- function(dt) {
+  dt <- copy(dt)
+  if (!"ref_key_3p" %in% names(dt)) dt[, ref_key_3p := NA_character_]
+  if (!"ref_key_5p" %in% names(dt)) dt[, ref_key_5p := NA_character_]
+  dt[grepl("TAA|Viral", mutation_profile) & !grepl("ref", mutation_profile) &
+       is.na(ref_key_3p) & is.na(ref_key_5p) & !is.na(ref_key),
+     ref_key_3p := ref_key]
+  dt[]
+}
+
+# (f) non-fatal guard: if the results predate the TAA ref_key/type_TAA
+#     integration, every TAA has ref_key = NA and all TAA control silently
+#     vanishes. Warn rather than stop (the run is still valid for neoantigens).
+.check_taa_integration <- function(dt, tag) {
+  n_taa <- dt[grepl("TAA|Viral", mutation_profile) & !grepl("ref", mutation_profile), .N]
+  n_key <- dt[grepl("TAA|Viral", mutation_profile) & !grepl("ref", mutation_profile) &
+                !is.na(ref_key), .N]
+  if (n_taa > 0 && n_key == 0)
+    warning(sprintf("[%s] %d TAA/viral test rows but 0 carry a ref_key -- results likely predate the TAA integration; TAA WT control will be absent.",
+                    tag, n_taa))
+  else
+    message(sprintf("[%s] TAA ref_key check: %d/%d TAA/viral test rows keyed to a WT.",
+                    tag, n_key, n_taa))
+  invisible(dt)
+}
+
+source("PEPITOPE/s7_NEW_screen_results/palette_screens.R")
 
 # A fusion alt has two WT partners (5' and 3') when the upstream script emits
 # ref_key_3p / ref_key_5p; otherwise there is a single ref_key. This resolves
@@ -47,7 +101,7 @@ dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 .rk_of <- function(x, units, unit = "gene_id") {
   kc <- intersect(c("ref_key_3p", "ref_key_5p", "ref_key"), names(x))
   if (!length(kc)) stop(".rk_of: no ref_key column found")
-  rk <- unique(unlist(x[get(unit) %in% units & mutation_profile != "ref", ..kc]))
+  rk <- unique(unlist(x[get(unit) %in% units & !grepl("ref", mutation_profile), ..kc]))
   rk[!is.na(rk)]
 }
 
@@ -69,20 +123,23 @@ add_gates <- function(dt, padj_max, lfc_pass, n_sd) {
 # ---------------------------------------------------------------------------
 # 2. unit-level rollup
 # ---------------------------------------------------------------------------
-# test rows = barcodes the call is made on (TAA, or alt for neoantigens)
+# test rows = barcodes the call is made on (TAA/viral, or alt for neoantigens)
 # ref  rows = WT partners, summarised separately and joined on ref_key so that
 #             every block of a fusion finds the shared reference
 # NOTE: ref-only gene_ids (e.g. PLXNA2.fs) no longer appear as units of their
 #       own -- they exist only as the ref side of the join.
 roll_units <- function(dt, by) {
   
-  refs <- dt[mutation_profile == "ref",
+  refs <- dt[grepl("ref", mutation_profile),
              .(n_bc_ref = .N, n_sig_ref = sum(g3_passed),
                ref_best_stat = .min_safe(stat), ref_best_lfc = .min_safe(log2FoldChange)),
              by = .(ref_key)]
   
-  tests <- dt[mutation_profile != "ref",
-              .(class      = if (all(mutation_profile == "TAA")) "TAA" else "neo",
+  # (a) ag_class: neo vs TAA (viral folds into TAA). One row per unit, so all()
+  #     over the non-ref test rows of that unit is well defined.
+  tests <- dt[!grepl("ref", mutation_profile),
+              .(ag_class   = if (all(grepl("TAA|Viral", mutation_profile))) "TAA" else "neo",
+                class      = if (all(!is.na(ref_key))) "controlled" else "no_ref",
                 is_fusion  = any(is_fusion),
                 n_bc_test  = .N,
                 n_sig      = sum(g3_passed),
@@ -93,10 +150,11 @@ roll_units <- function(dt, by) {
                 best_padj  = .min_safe(padj)),
               by = by]
   
-  # one row per (unit, WT partner): 1 for SNVs, 2 for fusions, 0 for TAA
+  # one row per (unit, WT partner): 1 for SNVs, 2 for fusions, 1 for keyed TAAs
+  # (ref_key_3p now carries the TAA WT key via .transport_taa_refkey), 0 otherwise
   map <- unique(rbindlist(list(
-    dt[mutation_profile != "ref" & !is.na(ref_key_3p), c(by, "ref_key_3p"), with = FALSE],
-    dt[mutation_profile != "ref" & !is.na(ref_key_5p), c(by, "ref_key_5p"), with = FALSE]
+    dt[!grepl("ref", mutation_profile) & !is.na(ref_key_3p), c(by, "ref_key_3p"), with = FALSE],
+    dt[!grepl("ref", mutation_profile) & !is.na(ref_key_5p), c(by, "ref_key_5p"), with = FALSE]
   ), use.names = FALSE))
   setnames(map, 2L, "ref_key")
   
@@ -136,13 +194,15 @@ hit_prioritisation <- function(screen_dt, COMP_MAIN, COMP_CTRL = "UT vs B",
   m <- k[m, on = unit]
   
   # -- vetoes ---------------------------------------------------------------
-  # neo: one ref barcode clearing all three gates.
-  m[, veto_wt_ref := class == "neo" & n_sig_ref > 0]
-  m[, veto_donor  := class == "TAA" & !is.na(ctrl_n_sig) & ctrl_n_sig > 0] # not enforced
-  m[, veto_TAA_consistency := class == "TAA" & !is.na(worst_lfc) & worst_lfc > 0]
-  # flagged, NOT vetoed: mutation-specificity is untestable without a WT partner,
-  # so the ref test was skipped rather than passed
-  m[, no_ref := class == "neo" & !has_ref]
+  # (a) all antigen-type logic keyed on ag_class / has_ref, not the dead
+  #     class=="neo" literal.
+  # neo or keyed TAA: a WT barcode of this unit clears all three gates.
+  m[, veto_wt_ref := has_ref & n_sig_ref > 0]
+  # computed, NOT enforced (reported for assessment, per instruction)
+  m[, veto_donor  := ag_class == "TAA" & !is.na(ctrl_n_sig) & ctrl_n_sig > 0]
+  m[, veto_TAA_consistency := ag_class == "TAA" & !is.na(worst_lfc) & worst_lfc > 0]
+  # flagged, NOT vetoed: mutation-specificity untestable without a WT partner
+  m[, no_ref := ag_class == "neo" & !has_ref]
   m[, veto        := veto_wt_ref | veto_TAA_consistency]
   m[, veto_reason := fcase(veto_wt_ref, "wt_ref_dropout",
                            veto_TAA_consistency, "inconsistent_dropout",
@@ -168,25 +228,32 @@ hit_prioritisation <- function(screen_dt, COMP_MAIN, COMP_CTRL = "UT vs B",
     default = "not_called")]
   m[, tier := factor(tier, levels = c("A","B","C","vetoed","not_called"), ordered = TRUE)]
   
-  # margin: neo -> vs its WT partner (via ref_key); TAA -> vs the donor control.
-  # NA (not Inf) when the partner is absent -- see no_ref.
-  m[, margin        := fifelse(class == "neo", ref_best_stat  - best_stat,
+  # margin: vs the WT partner whenever one exists (neo OR keyed TAA); vs the
+  # donor control only as fallback. NA (not Inf) when neither is available.
+  m[, margin        := fifelse(has_ref, ref_best_stat  - best_stat,
                                ctrl_best_stat - best_stat)]
-  m[, margin_source := fifelse(class == "neo", "ref", "donor_ctrl")]
+  m[, margin_source := fifelse(has_ref, "ref", "donor_ctrl")]
   
   setorder(m, tier, best_stat)
   message(sprintf("[%s]\n%s", COMP_MAIN,
-                  paste(capture.output(print(m[, .N, by = .(class, tier)][order(class, tier)])), collapse = "\n")))
+                  paste(capture.output(print(m[, .N, by = .(ag_class, tier)][order(ag_class, tier)])), collapse = "\n")))
   m[]
 }
 
 # ---------------------------------------------------------------------------
 # 4. combine the two TCR pools
 # ---------------------------------------------------------------------------
+# (c) merge on `unit` only; class / ag_class are unit invariants, so coalesce
+#     them rather than merging on a column that can flip between pools and split
+#     a unit into two half-NA rows.
 create_list <- function(screen_clusters, screen_singlets, unit = "gene_id") {
   s <- merge(screen_clusters, screen_singlets,
-             by = c(unit, "class"), suffixes = c("_DB", "_SG"), all = TRUE)
+             by = unit, suffixes = c("_DB", "_SG"), all = TRUE)
+  s[, class    := fcoalesce(class_DB,    class_SG)]
+  s[, ag_class := fcoalesce(ag_class_DB, ag_class_SG)]
   
+  # (d) best across pools kept intentionally: a veto in one pool does not sink a
+  #     unit that is a clean hit in the other.
   lv <- levels(s$tier_DB)
   s[, best_tier := factor(lv[pmin(as.integer(tier_DB), as.integer(tier_SG), na.rm = TRUE)],
                           levels = lv, ordered = TRUE)]
@@ -202,8 +269,8 @@ create_list <- function(screen_clusters, screen_singlets, unit = "gene_id") {
   s[, rank_stat := frank(best_stat_overall, ties.method = "min")]
   s[, rank_lfc  := frank(best_lfc_overall,  ties.method = "min")]
   s[, rank_best := pmin(rank_stat, rank_lfc)]
-  s[, sel_pos := .I]
   setorder(s, rank_best, best_stat_overall)
+  s[, sel_pos := .I]   # now the post-sort rank (moved after setorder)
   s[]
 }
 
@@ -213,17 +280,42 @@ create_list <- function(screen_clusters, screen_singlets, unit = "gene_id") {
 find_barcodes <- function(selected, gates_dt, COMP_MAIN_db, COMP_MAIN_sg,
                           unit = "gene_id") {
   
-  rk <- .rk_of(gates_dt, selected[[unit]], unit)
+  comps <- c(COMP_MAIN_db, COMP_MAIN_sg)
   
-  bc <- gates_dt[comparison %in% c(COMP_MAIN_db, COMP_MAIN_sg) &
-                   (get(unit) %in% selected[[unit]] |
-                      (mutation_profile == "ref" & ref_key %in% rk))]
-  setorder(bc, stat)
-  test <- bc[mutation_profile != "ref"][, .SD[1], by = unit]      # one per unit
-  ref  <- bc[mutation_profile == "ref"][, .SD[1], by = "ref_key"] # one per WT partner
-  bc   <- rbind(test, ref, use.names = TRUE, fill = TRUE)
-  setorder(bc, log2FoldChange)
-  bc[]
+  # -- 1. strongest alt/test barcode per unit, pooled across DB + Single ------
+  # ranked purely on log2FoldChange (most negative = strongest dropout). The
+  # winning row carries the comparison it won in, which the ref must match.
+  tst <- gates_dt[comparison %in% comps &
+                    get(unit) %in% selected[[unit]] &
+                    !grepl("ref", mutation_profile) &
+                    !is.na(log2FoldChange)]
+  setorder(tst, log2FoldChange)
+  test <- tst[, .SD[1], by = unit]                 # winner + its comparison
+  
+  # annotation only (neo | TAA); the ref rule below is uniform
+  if ("ag_class" %in% names(selected))
+    test <- selected[, c(unit, "ag_class"), with = FALSE][test, on = unit]
+  
+  # -- 2. matched WT barcodes: for EACH WT partner of the unit, the best ref ---
+  #    barcode from the SAME comparison the alt won in. Fusions -> 5' and 3';
+  #    TAAs with a WT -> their reference; partnerless units -> none.
+  ref_list <- lapply(seq_len(nrow(test)), function(i) {
+    u    <- test[[unit]][i]
+    cmp  <- test$comparison[i]
+    rk_u <- .rk_of(gates_dt, u, unit)              # all WT key(s) for this unit
+    if (!length(rk_u)) return(NULL)
+    r <- gates_dt[comparison == cmp & grepl("ref", mutation_profile) &
+                    ref_key %in% rk_u & !is.na(log2FoldChange)]
+    if (!nrow(r)) return(NULL)
+    setorder(r, log2FoldChange)
+    r <- r[, .SD[1], by = ref_key]                 # best barcode per WT partner
+    r[, paired_unit := u]
+  })
+  ref <- rbindlist(ref_list, use.names = TRUE, fill = TRUE)
+  
+  out <- rbind(test, ref, use.names = TRUE, fill = TRUE)
+  setorder(out, log2FoldChange)
+  out[]
 }
 
 # ---------------------------------------------------------------------------
@@ -233,7 +325,7 @@ plot_hits <- function(gates_dt, gp_dt, selected, COMP_MAIN_db, COMP_MAIN_sg,
                       COMP_CTRL = "UT vs B", minBase = 30,
                       unit = "gene_id", folder_output) {
   
-  pal <- c(alt = "red3", ref = "black", "TAA" = "gold")
+  pal <- palette_mutprof
   d   <- gates_dt[baseMean > minBase]
   d_db <- d[comparison == COMP_MAIN_db]
   d_sg <- d[comparison == COMP_MAIN_sg]
@@ -246,7 +338,7 @@ plot_hits <- function(gates_dt, gp_dt, selected, COMP_MAIN_db, COMP_MAIN_sg,
   
   # highlight the unit's own barcodes plus every WT barcode controlling it
   hi_rows <- function(x, g, rk) x[get(unit) == g |
-                                    (mutation_profile == "ref" & ref_key %in% rk)]
+                                    (grepl("ref", mutation_profile) & ref_key %in% rk)]
   
   ma_panel <- function(x, ttl, sel_unit, sel_rk) {
     hi <- hi_rows(x, sel_unit, sel_rk)
@@ -287,7 +379,7 @@ plot_hits <- function(gates_dt, gp_dt, selected, COMP_MAIN_db, COMP_MAIN_sg,
     p5 <- ggplot(hi_rows(gp_dt, g, rk), aes(variable, norm + 1)) +
       geom_point(aes(col = mutation_profile), size = 4, alpha = .5) +
       geom_line(aes(group = guide)) + scale_y_log10() +
-      scale_color_manual(values = c(alt = "red3", ref = "grey", "TAA" = "gold")) +
+      scale_color_manual(values = pal) +
       theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
             legend.position = "none") +
       labs(x = NULL, y = "normalised counts + 1") + ggtitle(paste0(g, " | profile"))
@@ -344,27 +436,26 @@ run_pipeline <- function(screen_dt, COMP_MAIN_db, COMP_MAIN_sg, pat_folder,
   called  <- cand[best_tier %in% c("A","B","C")]
   selected <- head(called, topN)
   bcs     <- find_barcodes(selected, gates, COMP_MAIN_db, COMP_MAIN_sg, unit = unit)
+  bcs     <- unique(bcs, by = "barcode")   # a shared WT appears once per unit it controls
   setorder(bcs, ref_key, mutation_profile, stat)
-  fwrite(bcs[,.(gene_id,barcode,mutation_profile,gene_name, gene,ref_key, comparison,baseMean, stat, log2FoldChange, pvalue, padj)],
-         file.path(fo, "03_required_barcodes.txt"))
+  keep_cols <- intersect(c("gene_id","barcode","mutation_profile","ag_class","paired_unit",
+                           "gene_name","gene","ref_key","comparison","baseMean","stat",
+                           "log2FoldChange","pvalue","padj"), names(bcs))
+  fwrite(bcs[, ..keep_cols], file.path(fo, "03_required_barcodes.txt"))
   
   # ---- 4 output tables ----------------------------------------------------
   # 1: full audit trail, every unit, both pools
   fwrite(cand, file.path(fo, "01_units_all.txt"))
   # 2: the decision table -- tiered hits only
   fwrite(called, file.path(fo, "02_candidates_tiered.txt"))
-  # 3: top N with the barcode to carry forward
-  # fwrite(merge(selected, bcs[, .(get(unit), barcode, gene_name, mutation_profile,
-  #                                comparison, baseMean, log2FoldChange, stat, padj)],
-  #              by.x = unit, by.y = "V1", all.x = TRUE, sort = FALSE),
-  #        file.path(fo, "03_selected_with_barcode.txt"))
+  # 3: 03_required_barcodes.txt (written above) -- barcode to carry forward
   # 4: barcode-level evidence behind the selection, including the WT refs that
   #    the selected units are controlled by (matched via ref_key)
-  # sel_rk <- .rk_of(gates, selected[[unit]], unit)
-  # fwrite(gates[(get(unit) %in% selected[[unit]] |
-  #                 (mutation_profile == "ref" & ref_key %in% sel_rk)) &
-  #                 comparison %in% c(COMP_MAIN_db, COMP_MAIN_sg, COMP_CTRL)],
-  #                 file.path(fo, "04_barcode_evidence.txt"))
+  sel_rk <- .rk_of(gates, selected[[unit]], unit)
+  fwrite(gates[(get(unit) %in% selected[[unit]] |
+                  (grepl("ref", mutation_profile) & ref_key %in% sel_rk)) &
+                 comparison %in% c(COMP_MAIN_db, COMP_MAIN_sg, COMP_CTRL)],
+         file.path(fo, "04_barcode_evidence.txt"))
   
   plot_hits(gates, gp_dt, selected, COMP_MAIN_db, COMP_MAIN_sg,
             COMP_CTRL = COMP_CTRL, minBase = minBase_plot, unit = unit,
@@ -379,14 +470,17 @@ run_pipeline <- function(screen_dt, COMP_MAIN_db, COMP_MAIN_sg, pat_folder,
 # ---------------------------------------------------------------------------
 # 8. run
 # ---------------------------------------------------------------------------
-screen_1  <- fread("PEPITOPE/s7_NEW_screen_results/output_screen_1/updated_screen_results/screen1_results.txt")
-screen_2a <- fread("PEPITOPE/s7_NEW_screen_results/output_screen_2a/updated_screen_results/screen2a_results.txt")
+# (b)/(f) transport TAA ref_key into ref_key_3p and verify the integration at load
+screen_1  <- .check_taa_integration(.transport_taa_refkey(
+  fread("PEPITOPE/s7_NEW_screen_results/output_screen_1/updated_screen_results/screen1_results.txt")), "screen_1")
+screen_2a <- .check_taa_integration(.transport_taa_refkey(
+  fread("PEPITOPE/s7_NEW_screen_results/output_screen_2a/updated_screen_results/screen2a_results.txt")), "screen_2a")
 
 run_pipeline(screen_dt    = screen_1,
              COMP_MAIN_db = "Cluster vs UT",
              COMP_MAIN_sg = "Single vs UT",
              pat_folder   = "P1",
-             topN         = 30,
+             topN         = 60,
              minBase      = 100,
              gp_dt = fread("PEPITOPE/s7_NEW_screen_results/output_screen_1/updated_screen_results/gene_profiles.txt"))
 
@@ -394,7 +488,7 @@ run_pipeline(screen_dt    = screen_2a,
              COMP_MAIN_db = "Cluster vs UT",
              COMP_MAIN_sg = "Single vs UT",
              pat_folder   = "P5",
-             topN         = 30,
+             topN         = 60,
              minBase      = 100,
              gp_dt = fread("PEPITOPE/s7_NEW_screen_results/output_screen_2a/updated_screen_results/gene_profiles.txt"))
 
